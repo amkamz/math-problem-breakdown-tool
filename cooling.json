@@ -1,7 +1,7 @@
 {
   "id": "cooling",
   "title": "Newton's law of cooling",
-  "text": "The temperature T(t) °C of an object at time t seconds is modelled using Newton's Law of Cooling,\nT(t) = 15 + 4e^(-3t).\n\nWhat is the initial temperature of the object?",
+  "text": "The temperature T(t) °C of an object at time t seconds is modelled using Newton's Law of Cooling,\nT(t) = 15 + 4e⁻³ᵗ.\n\nWhat is the initial temperature of the object?",
   "marks": {
     "goal": [
       {
@@ -10,8 +10,8 @@
         "findSym": "$T(0)$",
         "whenWorded": "",
         "whenSym": "",
-        "start": 121,
-        "end": 166
+        "start": 118,
+        "end": 163
       }
     ],
     "variables": [
@@ -30,10 +30,10 @@
     ],
     "equations": [
       {
-        "phrase": "T(t) = 15 + 4e^(-3t)",
+        "phrase": "T(t) = 15 + 4e⁻³ᵗ",
         "content": "$T(t) = 15 + 4e^{-3t}$",
         "start": 98,
-        "end": 118
+        "end": 115
       }
     ]
   },

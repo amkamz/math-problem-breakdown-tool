@@ -471,17 +471,17 @@ const STATE_CLASS = { goal:"goal", variables:"var", equations:"eq" };
 const PRELOADED = [
   {
     id:"cooling", title:"Newton's law of cooling",
-    text:"The temperature T(t) °C of an object at time t seconds is modelled using Newton's Law of Cooling,\nT(t) = 15 + 4e^(-3t).\n\nWhat is the initial temperature of the object?",
+    text:"The temperature T(t) °C of an object at time t seconds is modelled using Newton's Law of Cooling,\nT(t) = 15 + 4e⁻³ᵗ.\n\nWhat is the initial temperature of the object?",
     marks:{
       goal:[
-        { phrase:"What is the initial temperature of the object", findWorded:"the initial temperature", findSym:"$T(0)$", whenWorded:"", whenSym:"", start:121, end:166 }
+        { phrase:"What is the initial temperature of the object", findWorded:"the initial temperature", findSym:"$T(0)$", whenWorded:"", whenSym:"", start:118, end:163 }
       ],
       variables:[
         { phrase:"time t seconds", content:"Let $t$ = time in seconds.", start:40, end:54 },
         { phrase:"temperature T(t)", content:"Let $T$ = temperature in °C at time $t$.", start:4, end:20 }
       ],
       equations:[
-        { phrase:"T(t) = 15 + 4e^(-3t)", content:"$T(t) = 15 + 4e^{-3t}$", start:98, end:118 }
+        { phrase:"T(t) = 15 + 4e⁻³ᵗ", content:"$T(t) = 15 + 4e^{-3t}$", start:98, end:115 }
       ]
     },
     solution:[
