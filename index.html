@@ -1246,17 +1246,18 @@ document.addEventListener("DOMContentLoaded",async()=>{
     renderGoal();
   });
 
-  // Region clicks. While a state is active, clicking inside ANOTHER state's box
-  // deselects (-> no state). Otherwise the box behaves normally (header toggles,
-  // equations box taps to advance the solution).
+  // Region clicks. A numbered box's header button behaves like its step button:
+  // click it to switch straight to that state (or toggle it off if it's already
+  // active). Clicking ELSEWHERE inside a different state's box deselects (-> no
+  // state). Otherwise the box behaves normally (equations box taps to advance).
   function regionClick(state, e){
     if(e.target.closest("#toolbar, #handle, #goalToggle")) return;
+    if(e.target.closest(".region-head, .goal-head")){ setActiveState(state); return; }
     if(activeState!=="none" && activeState!==state){
       activeState="none";
       renderProblem(); renderRegions(); updateRegionStyles();
       return;
     }
-    if(e.target.closest(".region-head, .goal-head")){ setActiveState(state); return; }
     if(state==="equations"){
       if(e.target.closest(".sol-btn")) return;   // its own handler advances
       if(eqNextAvailable()) advanceSolution();
