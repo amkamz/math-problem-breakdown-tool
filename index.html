@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Maths Question Modelling Tool</title>
+
+<!--
+  Maths Question Modelling Tool  —  single self-contained file, no install.
+
+  OFFLINE NOTE: KaTeX + IBM Plex fonts load from a CDN, so the FIRST load needs
+  internet (cached afterwards). For full offline use, download katex (css/js/fonts)
+  and the Plex webfonts next to this file and point the <link>/<script> at them.
+
+  TEACHING FLOW (in order):
+    1 Goal       "Find ___ when ___"  — fills in, then rewrites to symbols
+    2 Variables  name each quantity with a letter
+    3 Equations  turn each fact into an equation, then solve line by line
+-->
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+  :root{
+    --scale: 1;
+    --ink:#16191D; --ink-soft:#5A616A; --line:#1c1f24; --hair:#D7DBDE;
+    --paper:#FFFFFF; --chrome:#fff;
+
+    /* Okabe–Ito colour-blind-safe trio. Redundant underline styles too. */
+    --c-var:#0072B2;  --c-var-tint:rgba(0,114,178,.14);
+    --c-goal:#D55E00; --c-goal-tint:rgba(213,94,0,.14);
+    --c-eq:#009E73;   --c-eq-tint:rgba(0,158,115,.16);
+    --grey:#8A9097;   --grey-tint:rgba(138,144,151,.16);
+    --focus:#1B5FB0;
+  }
+  *{ box-sizing:border-box; border-radius:0 !important; }
+  html{ font-size:calc(17px * var(--scale)); }
+  body{
+    margin:0; height:100vh; overflow:hidden;
+    font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    color:var(--ink); background:var(--paper); line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{ font-family:"IBM Plex Mono",ui-monospace,monospace; }
+  @media (prefers-reduced-motion: no-preference){
+    .mk,.toolbar,.block,.sol-line,.step{ transition:background-color .16s, border-color .16s, transform .18s, opacity .2s, color .16s; }
+    .region{ transition:background-color .16s, border-color .16s, box-shadow .16s; }
+  }
+
+  /* colour-coded number badge: a coloured CIRCLE with the digit inside */
+  .badge{
+    width:1.7rem; height:1.7rem; flex:0 0 auto;
+    border-radius:50% !important;
+    display:inline-flex; align-items:center; justify-content:center;
+    font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:.92rem;
+    color:#fff; line-height:1;
+  }
+  .badge.goal{ background:var(--c-goal); }
+  .badge.var{  background:var(--c-var); }
+  .badge.eq{   background:var(--c-eq); }
+
+  /* ---------------- auto-hiding toolbar (BOTTOM) ---------------- */
+  .hoverstrip{ position:fixed; bottom:0; left:0; right:0; height:16px; z-index:60; }
+  .handle{
+    position:fixed; bottom:0; right:1rem; z-index:63;
+    font-size:.7rem; letter-spacing:.12em; color:var(--ink-soft);
+    background:var(--paper); border:1px solid var(--hair); border-bottom:0;
+    padding:.12rem .9rem; cursor:pointer; font-family:"IBM Plex Mono",monospace;
+  }
+  .toolbar{
+    position:fixed; bottom:0; left:0; right:0; z-index:62;
+    display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;
+    padding:.5rem .8rem; background:var(--paper); border-top:1px solid var(--line);
+    transform:translateY(105%); font-size:.8rem;
+  }
+  .toolbar.show{ transform:none; }
+  .toolbar .brand{ font-weight:600; margin-right:.3rem; display:flex; align-items:center; gap:.5rem; }
+  .toolbar .brand .dot{ width:.7rem; height:.7rem; background:var(--c-goal); }
+  .spacer{ flex:1 1 auto; }
+  .seg{ display:inline-flex; border:1px solid var(--hair); }
+  .seg button{ border:0; border-right:1px solid var(--hair); }
+  .seg button:last-child{ border-right:0; }
+  button.ctrl,.seg button,label.ctrl,select.ctrl{
+    font:inherit; font-size:.8rem; color:var(--ink);
+    padding:.42rem .7rem; background:var(--paper); border:1px solid var(--hair); cursor:pointer;
+  }
+  button.ctrl:hover,.seg button:hover,label.ctrl:hover{ background:#eef0f1; }
+  .seg button[aria-pressed="true"]{ background:var(--ink); color:#fff; }
+  :focus-visible{ outline:3px solid var(--focus); outline-offset:2px; }
+
+  /* ---------------- app canvas (everything fixed, nothing reflows) ---------------- */
+  .app{ display:grid; grid-template-columns:37% 63%; height:100vh; }
+
+  /* ---- LEFT: problem + step buttons ---- */
+  .problem-pane{ border-right:1px solid var(--line); padding:clamp(1.2rem,2.2vw,2.2rem); display:flex; flex-direction:column; min-height:0; }
+  .eyebrow{ font-family:"IBM Plex Mono",monospace; font-size:.7rem; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 1rem; flex:0 0 auto; }
+  .problem-wrap{ flex:1 1 auto; overflow:auto; min-height:0; }
+  .problem{ font-size:1.8rem; line-height:1.6; font-weight:400; }
+
+  .step-buttons{ flex:0 0 auto; display:flex; flex-direction:column; gap:.45rem; padding-top:.8rem; margin-top:.5rem; margin-bottom:clamp(1.5rem,6vh,3.5rem); border-top:1px solid var(--hair); }
+  .step-buttons .sb-label{ font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:.1rem; }
+  .step{
+    display:flex; align-items:center; gap:.7rem; width:100%; text-align:left;
+    font:inherit; font-size:1rem; padding:.62rem .8rem; background:var(--paper);
+    border:1px solid var(--hair); cursor:pointer; color:var(--ink);
+  }
+  .step .lbl{ font-weight:600; white-space:nowrap; }
+  .step .chk{ margin-left:auto; font-size:.95rem; opacity:0; }
+  .step.filled .chk{ opacity:1; }
+  .step:hover{ background:#eef0f1; }
+  .step[data-state="goal"].on{ border-color:var(--c-goal); box-shadow:inset 5px 0 0 var(--c-goal); background:var(--c-goal-tint); }
+  .step[data-state="variables"].on{ border-color:var(--c-var); box-shadow:inset 5px 0 0 var(--c-var); background:var(--c-var-tint); }
+  .step[data-state="equations"].on{ border-color:var(--c-eq); box-shadow:inset 5px 0 0 var(--c-eq); background:var(--c-eq-tint); }
+  .step[data-state="goal"].filled .chk{ color:var(--c-goal); }
+  .step[data-state="variables"].filled .chk{ color:var(--c-var); }
+  .step[data-state="equations"].filled .chk{ color:var(--c-eq); }
+
+  /* problem-text marks — only the ACTIVE step's words are ever highlighted */
+  /* base mark: identical box metrics in every state so highlighting never reflows text */
+  .mk{ display:inline; font:inherit; color:inherit; padding:.04em 0; margin:0;
+       background:transparent; border:0; border-bottom:2px solid transparent; cursor:default; text-decoration:none;
+       -webkit-box-decoration-break:clone; box-decoration-break:clone; }
+  /* active step: clickable but NOT pre-coloured; hover gives a small neutral "clickable" hint */
+  .mk.act{ cursor:pointer; }
+  .mk.act:hover{ background:rgba(20,25,29,.06); }
+  /* clicked / revealed in the ACTIVE step -> full colour highlight */
+  .mk.act.done.goal{ color:var(--c-goal); background:var(--c-goal-tint); border-bottom-color:var(--c-goal); }
+  .mk.act.done.var{  color:var(--c-var);  background:var(--c-var-tint);  border-bottom-color:var(--c-var); }
+  .mk.act.done.eq{   color:var(--c-eq);   background:var(--c-eq-tint);   border-bottom-color:var(--c-eq); }
+  /* revealed in an INACTIVE step -> subtle grey; revealed in several -> overlapping tints (inline) */
+  .mk.rev.grey{ background:var(--grey-tint); }
+  .mk.rev.multi{ background-repeat:no-repeat; }
+  .mk.flash{ filter:brightness(.92); }
+  /* double-click/tap the left panel to briefly "peek" where the current step's words are:
+     full highlight appears instantly, then fades out */
+  .mk.act.peek.goal{ animation:peekGoal .45s ease-out; }
+  .mk.act.peek.var{  animation:peekVar  .45s ease-out; }
+  .mk.act.peek.eq{   animation:peekEq   .45s ease-out; }
+  @keyframes peekGoal{ 0%{ color:var(--c-goal); background:var(--c-goal-tint); border-bottom-color:var(--c-goal); } 100%{ color:var(--ink); background:transparent; border-bottom-color:transparent; } }
+  @keyframes peekVar{  0%{ color:var(--c-var);  background:var(--c-var-tint);  border-bottom-color:var(--c-var);  } 100%{ color:var(--ink); background:transparent; border-bottom-color:transparent; } }
+  @keyframes peekEq{   0%{ color:var(--c-eq);   background:var(--c-eq-tint);   border-bottom-color:var(--c-eq);   } 100%{ color:var(--ink); background:transparent; border-bottom-color:transparent; } }
+  /* eq region becomes tap-to-advance once a solution line is available */
+  .eq-region.tappable{ cursor:pointer; }
+
+  /* ---- RIGHT: working pane, fixed rows ---- */
+  .work-pane{ display:grid; grid-template-rows:27% 1fr; height:100vh; min-height:0; }
+  .region{ position:relative; padding:clamp(.8rem,1.7vw,1.4rem) clamp(1.1rem,2.2vw,1.7rem); overflow:hidden; min-height:0; }
+  .goal-region{ border-bottom:1px solid var(--line); display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; gap:clamp(.5rem,1.2vw,.95rem); overflow:auto; }
+  .mid{ display:grid; grid-template-columns:38% 1fr; min-height:0; }
+  .var-region{ border-right:1px solid var(--line); overflow:auto; }
+  .eq-region{ overflow:auto; }
+
+  /* spotlight: when a step is active, the other two recede */
+  .work-pane.focusing .region:not(.active){ opacity:.3; }
+
+  /* region header (var + eq): badge + title + cue on one row */
+  .region-head{
+    display:flex; align-items:center; gap:.6rem; width:100%;
+    font:inherit; background:transparent; border:0; cursor:pointer;
+    padding:0 0 .7rem; margin:0; text-align:left;
+  }
+  .region-head .ttl{ font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:.82rem; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-soft); }
+  .region.active .region-head .ttl{ color:var(--ink); }
+  .region .cue{ font-size:.78rem; color:var(--ink-soft); margin-left:auto; opacity:0; }
+  .region.active .cue{ opacity:1; }
+
+  .block{ font-size:1.4rem; line-height:1.5; margin:.38rem 0; }
+  .placeholder{ font-size:1.02rem; color:#AEB4B8; }
+  .region.active .placeholder{ display:none; }
+
+  /* ---- GOAL: title row on top-left, fill-in sentence underneath (full width) ---- */
+  .goal-top{ display:flex; align-items:center; gap:.8rem; }
+  .goal-head{
+    flex:0 1 auto; display:flex; flex-direction:row; align-items:center; gap:.6rem; min-width:0;
+    font:inherit; background:transparent; border:0; cursor:pointer; text-align:left; padding:0; margin:0;
+  }
+  .goal-head .ttl{ font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:.82rem; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-soft); white-space:nowrap; }
+  .goal-region.active .goal-head .ttl{ color:var(--ink); }
+  .goal-head .cue{ font-size:.76rem; color:var(--ink-soft); line-height:1.3; opacity:0; }
+  .goal-region.active .goal-head .cue{ opacity:1; }
+
+  .goal-line{ width:100%; flex:1; display:flex; align-items:center; align-content:center; flex-wrap:wrap; gap:.35rem .55rem; font-size:clamp(1.35rem,2.4vw,2.1rem); line-height:1.3; min-width:0; }
+  .goal-line .gf{ color:var(--ink); font-weight:400; }
+  /* slot stacks worded + symbolic in the same grid cell, so it always sizes to the
+     WIDER of the two and swapping between them shifts nothing on the line */
+  .slot{
+    display:inline-grid; justify-items:center; align-items:center; text-align:center;
+    padding:.04em .45em; min-height:1.5em; line-height:1.2;
+    border-bottom:2px solid var(--c-goal); color:var(--c-goal); font-weight:600;
+    white-space:nowrap;
+  }
+  .slot > .gv{ grid-area:1 / 1; display:inline-block; transition:opacity .14s ease; }
+  .slot > .gv.off{ visibility:hidden; opacity:0; }
+  .slot.empty{ color:#C2C7CA; border-bottom-color:#C2C7CA; font-weight:400; }
+  .goal-toggle{
+    flex:0 0 auto; margin-left:auto; cursor:pointer;
+    display:inline-flex; align-items:center; gap:.4rem;
+    font-family:"IBM Plex Mono",monospace; font-size:.72rem; font-weight:600;
+    letter-spacing:.04em; text-transform:uppercase; white-space:nowrap;
+    color:var(--c-goal); background:var(--c-goal-tint);
+    border:1px solid var(--c-goal); border-radius:999px; padding:.4em .85em;
+    line-height:1; transition:background .12s, color .12s;
+  }
+  .goal-toggle:hover{ background:var(--c-goal); color:#fff; }
+  .goal-toggle[hidden]{ display:none; }
+  #goalWhen.hidden{ display:none; }
+
+  /* solution flows directly under the equations */
+  .sol-wrap{ margin-top:1rem; padding-top:.85rem; border-top:1px dashed var(--hair); }
+  .sol-wrap.hidden-empty{ display:none; }
+  .sol-divider{ font-family:"IBM Plex Mono",monospace; font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:.5rem; }
+  .sol-line{ font-size:1.32rem; line-height:1.5; margin:.3rem 0; padding-left:.9rem; border-left:3px solid var(--c-eq); }
+  .sol-btn{ font:inherit; font-weight:600; font-size:.84rem; background:var(--ink); color:#fff; border:0; padding:.48rem .9rem; cursor:pointer; margin-top:.65rem; }
+  .sol-btn:hover{ filter:brightness(1.15); }
+  .sol-btn:disabled{ background:#9aa1a4; cursor:default; }
+
+  /* ---------------- framework + author overlays ---------------- */
+  .overlay{ position:fixed; inset:0; background:var(--paper); z-index:40; overflow:auto; padding:clamp(1.6rem,4vw,3rem); }
+  .framework{ max-width:900px; margin:0 auto; }
+  .framework h1{ font-size:1.9rem; margin:0 0 .3rem; }
+  .framework .sub{ color:var(--ink-soft); margin:0 0 1.8rem; font-size:1.05rem; }
+  .fw-step{ display:flex; gap:1.1rem; padding:1.1rem 0; border-top:1px solid var(--hair); }
+  .fw-step .n{ font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:1.15rem; min-width:2rem; }
+  .fw-step:nth-child(2) .n{ color:var(--c-goal); }
+  .fw-step:nth-child(3) .n{ color:var(--c-var); }
+  .fw-step:nth-child(4) .n{ color:var(--c-eq); }
+  .fw-step h2{ font-size:1.2rem; margin:0 0 .25rem; }
+  .fw-step p{ margin:0; color:var(--ink-soft); }
+  .fw-note{ margin-top:1.6rem; padding:1rem 1.2rem; border:1px solid var(--hair); background:#FAFBFB; font-size:.98rem; color:var(--ink-soft); }
+  .fw-note strong{ color:var(--ink); }
+
+  .author{ display:grid; grid-template-columns:1fr 1fr; gap:1.6rem; max-width:1300px; margin:0 auto; align-items:start; }
+  .card{ border:1px solid var(--hair); padding:1.2rem 1.3rem; }
+  .card h3{ font-family:"IBM Plex Mono",monospace; font-size:.76rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 .8rem; }
+  .author label.f{ display:block; font-size:.82rem; font-weight:600; margin:.7rem 0 .25rem; }
+  .author input[type=text], .author textarea{ width:100%; font:inherit; font-size:.95rem; padding:.55rem .65rem; border:1px solid var(--hair); background:#fff; }
+  .author textarea{ resize:vertical; min-height:5rem; line-height:1.55; }
+  .author textarea#ptext{ min-height:8rem; font-size:1.05rem; }
+  .hintline{ font-size:.78rem; color:var(--ink-soft); margin:.4rem 0 0; }
+  .markgroup{ margin-top:1rem; }
+  .markgroup .gh{ display:flex; align-items:center; gap:.5rem; font-weight:600; font-size:.85rem; margin-bottom:.4rem; }
+  .markgroup .gh .sw{ width:.8rem; height:.8rem; }
+  .markrow{ border:1px solid var(--hair); padding:.5rem .6rem; margin:.4rem 0; display:grid; grid-template-columns:1fr auto; gap:.4rem; align-items:center; }
+  .markrow .ph{ font-size:.85rem; color:var(--ink-soft); grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; gap:.6rem; }
+  .markrow input{ width:100%; font:inherit; font-size:.9rem; padding:.4rem .5rem; border:1px solid var(--hair); }
+  .markrow .stack{ grid-column:1 / -2; display:grid; grid-template-columns:1fr 1fr; gap:.35rem; }
+  .markrow .stack input{ width:100%; }
+  .mini{ font-size:.78rem; padding:.32rem .6rem; border:1px solid var(--hair); background:#fff; cursor:pointer; }
+  .mini:hover{ background:#eef0f1; }
+  .mini.danger{ color:#a3232b; border-color:#e3c3c6; }
+  .mini.var{ border-color:var(--c-var); color:var(--c-var); }
+  .mini.goal{ border-color:var(--c-goal); color:var(--c-goal); }
+  .mini.eq{ border-color:var(--c-eq); color:var(--c-eq); }
+  .row{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+  .prev-states{ display:flex; gap:.4rem; margin-bottom:.8rem; }
+
+  .hidden{ display:none !important; }
+
+  /* ---------------- print worksheet (blank) / answer key ---------------- */
+  #printSheet{ display:none; }
+  @media print{
+    @page{ size:A4 portrait; margin:13mm; }
+    html{ font-size:12px; }
+    body{ height:auto; overflow:visible; }
+    .toolbar,.handle,.hoverstrip,#presentView,#authorView,#frameworkView,.no-print{ display:none !important; }
+    #printSheet{ display:block; color:#000; }
+    .ps-head{ display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #000; padding-bottom:6px; margin-bottom:12px; }
+    .ps-title{ font-size:17px; font-weight:700; }
+    .ps-kicker{ font-family:"IBM Plex Mono",monospace; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:#444; }
+    .ps-name{ font-size:11px; color:#000; }
+    .ps-name span{ display:inline-block; border-bottom:1px solid #000; min-width:140px; }
+    .ps-problem{ font-size:14px; line-height:1.5; border:1.5px solid #000; padding:10px 12px; margin-bottom:14px; }
+    .ps-sec{ border:1px solid #000; margin:0 0 10px; break-inside:avoid; }
+    .ps-sec h4{ margin:0; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+                padding:5px 10px; border-bottom:1px solid #000; display:flex; align-items:center; gap:.5rem; }
+    .ps-sec h4 .pn{ font-weight:700; }
+    .ps-sec h4 .pcue{ font-family:"IBM Plex Sans",sans-serif; letter-spacing:0; text-transform:none; color:#555; font-weight:400; font-size:10px; margin-left:auto; }
+    .ps-body{ padding:8px 12px; }
+    .wl{ border-bottom:1px solid #c4c4c4; height:30px; }
+    .ps-ans{ font-size:13px; line-height:1.55; }
+    .ps-ans .a{ margin:.18rem 0; }
+    .ps-ans .a.sol{ padding-left:10px; border-left:3px solid #000; }
+    .ps-foot{ margin-top:6px; font-size:9px; color:#777; font-family:"IBM Plex Mono",monospace; letter-spacing:.1em; }
+  }
+</style>
+</head>
+<body>
+
+<template id="__bundler_thumbnail" data-bg-color="#FFFFFF">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect x="120" y="170" width="430" height="460" fill="#F2F4F5"/>
+    <circle cx="185" cy="250" r="26" fill="#D55E00"/>
+    <circle cx="185" cy="330" r="26" fill="#0072B2"/>
+    <circle cx="185" cy="410" r="26" fill="#009E73"/>
+    <rect x="240" y="236" width="240" height="28" fill="#C9CFD3"/>
+    <rect x="240" y="316" width="200" height="28" fill="#C9CFD3"/>
+    <rect x="240" y="396" width="260" height="28" fill="#C9CFD3"/>
+    <rect x="650" y="170" width="430" height="460" fill="#FFFFFF" stroke="#1c1f24" stroke-width="3"/>
+    <text x="690" y="320" font-family="monospace" font-size="56" fill="#16191D">f(x)</text>
+    <text x="690" y="430" font-family="monospace" font-size="44" fill="#009E73">x = 2±√2</text>
+  </svg>
+</template>
+
+<!-- PRESENT -->
+<div class="app" id="presentView">
+  <section class="pane problem-pane" aria-label="The problem">
+    <p class="eyebrow">The problem</p>
+    <div class="problem-wrap"><div class="problem" id="problemText"></div></div>
+
+    <div class="step-buttons" id="stepper" role="group" aria-label="Steps">
+      <span class="sb-label">Work through it</span>
+      <button class="step" data-state="goal"><span class="badge goal">1</span><span class="lbl">The goal</span><span class="chk">✓</span></button>
+      <button class="step" data-state="variables"><span class="badge var">2</span><span class="lbl">Variables</span><span class="chk">✓</span></button>
+      <button class="step" data-state="equations"><span class="badge eq">3</span><span class="lbl">Equations</span><span class="chk">✓</span></button>
+    </div>
+  </section>
+
+  <section class="pane work-pane" id="workPane" aria-label="Working">
+
+    <div class="region goal-region" data-state="goal" id="regGoal" aria-live="polite">
+      <div class="goal-top">
+        <button class="goal-head" data-state="goal">
+          <span class="badge goal">1</span><span class="ttl">The goal</span>
+          <span class="cue">click the words that say what to find</span>
+        </button>
+        <button class="goal-toggle" id="goalToggle" type="button" hidden></button>
+      </div>
+      <div class="goal-line" id="goalLine">
+        <span class="gf">Find</span>
+        <span class="slot empty" id="slotFind"><span class="gv">&nbsp;</span></span>
+        <span class="gf" id="goalWhen">when</span>
+        <span class="slot empty" id="slotWhen"><span class="gv">&nbsp;</span></span>
+      </div>
+    </div>
+
+    <div class="mid">
+      <div class="region var-region" data-state="variables" id="regVar" aria-live="polite">
+        <button class="region-head" data-state="variables"><span class="badge var">2</span><span class="ttl">Variables</span><span class="cue">click a quantity to name it</span></button>
+        <div class="placeholder">Name each quantity with a letter.</div>
+        <div class="block-host"></div>
+      </div>
+
+      <div class="region eq-region" data-state="equations" id="regEq" aria-live="polite">
+        <button class="region-head" data-state="equations"><span class="badge eq">3</span><span class="ttl">Equations</span><span class="cue">click a fact to turn it into an equation</span></button>
+        <div class="placeholder">Translate each fact into an equation, then solve.</div>
+        <div class="block-host"></div>
+        <div class="sol-wrap hidden-empty" id="solWrap">
+          <div class="sol-divider">Now solve, line by line</div>
+          <div id="solHost"></div>
+          <button class="sol-btn" id="solBtn">Show solution</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- FRAMEWORK -->
+<div class="overlay hidden" id="frameworkView">
+  <div class="framework">
+    <h1>How to break down a word problem</h1>
+    <p class="sub">Three steps, in order, for almost any worded problem.</p>
+    <div class="fw-step"><span class="n">1</span><div><h2>State the goal</h2><p>Fill in <strong>"Find ___ when ___."</strong> in plain words — e.g. <strong>"Find the time when the height is 10."</strong> Don't worry about symbols yet.</p></div></div>
+    <div class="fw-step"><span class="n">2</span><div><h2>Name the variables</h2><p>Find the quantities and give each one a letter, with units. Now the same goal reads in symbols: <strong>"Find $t$ when $h = 10$."</strong></p></div></div>
+    <div class="fw-step"><span class="n">3</span><div><h2>Extract the equations, then solve</h2><p>Turn each fact into an equation using your variables — one at a time — then work down line by line until it's solved.</p></div></div>
+    <div class="fw-note"><strong>Why this order?</strong> The goal in words tells you what to hunt for; naming variables gives you the language to say it precisely. The plain-English goal and the symbolic one are the <em>same sentence</em> — watching the blanks rewrite is the point.</div>
+  </div>
+</div>
+
+<!-- AUTHOR -->
+<div class="overlay hidden" id="authorView">
+  <div class="author">
+    <div class="card">
+      <h3>Edit the problem</h3>
+      <div class="row" style="margin-bottom:.8rem;gap:.5rem;">
+        <button class="mini" id="saveFileBtn">Save</button>
+        <button class="mini danger" id="deleteProblemBtn">Delete</button>
+      </div>
+      <label class="f" for="titleInput">Title</label>
+      <input type="text" id="titleInput" />
+      <label class="f" for="ptext">Problem text</label>
+      <textarea id="ptext" spellcheck="true"></textarea>
+      <p class="hintline">Select a word or phrase above, then add it to a step. The same words can belong to more than one step.</p>
+      <div class="row" style="margin-top:.5rem;">
+        <button class="mini goal" id="addGoal">＋ Goal</button>
+        <button class="mini var"  id="addVar">＋ Variable</button>
+        <button class="mini eq"   id="addEq">＋ Equation</button>
+      </div>
+
+      <div class="markgroup" id="grpGoal"></div>
+      <div class="markgroup" id="grpVariables"></div>
+      <div class="markgroup" id="grpEquations"></div>
+
+      <h3 style="margin-top:1.4rem;">Solution steps</h3>
+      <div id="solEditHost"></div>
+      <button class="mini" id="addSolBtn" style="margin-top:.5rem;">＋ Add solution line</button>
+      <p class="hintline">Wrap maths in dollar signs, e.g. <span class="mono">$d_1 = 80t$</span>.</p>
+    </div>
+
+    <div class="card">
+      <h3>Live preview</h3>
+      <p class="hintline" style="margin-bottom:.8rem;">Pick a step, then click the highlighted words — exactly as in class.</p>
+      <div class="prev-states" id="prevStates"></div>
+      <div id="authorPreviewProblem" class="problem" style="font-size:1.15rem;"></div>
+      <div id="authorPreviewRegions" style="margin-top:1.2rem;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PRINT (blank worksheet / answer key) -->
+<div id="printSheet" aria-hidden="true"></div>
+
+<!-- toolbar lives at the BOTTOM -->
+<button class="handle no-print" id="handle" aria-label="Show or hide the menu">menu ▴</button>
+<div class="toolbar no-print" id="toolbar">
+  <span class="brand"><span class="dot" aria-hidden="true"></span> Maths Question Modelling Tool</span>
+  <div class="seg" role="group" aria-label="View">
+    <button class="ctrl" id="mPresent" aria-pressed="true">Present</button>
+    <button class="ctrl" id="mAuthor" aria-pressed="false">Author</button>
+    <button class="ctrl" id="mFramework" aria-pressed="false">Framework</button>
+  </div>
+  <button class="ctrl" id="openFolderBtn" style="display:none">Open folder</button>
+  <label class="ctrl" for="examplePicker" style="border:0;padding-right:.2rem;">Problem</label>
+  <select class="ctrl" id="examplePicker" aria-label="Choose problem"></select>
+  <button class="ctrl" id="newProblemBtn">New</button>
+  <div class="spacer"></div>
+  <div class="seg" role="group" aria-label="Text size">
+    <button class="ctrl" id="fontDown" aria-label="Smaller text">A−</button>
+    <button class="ctrl" id="fontUp" aria-label="Larger text">A+</button>
+  </div>
+  <button class="ctrl" id="resetReveals">Reset</button>
+  <select class="ctrl" id="printMode" aria-label="Print mode">
+    <option value="worksheet">Worksheet (blank)</option>
+    <option value="answers">Answer key</option>
+  </select>
+  <button class="ctrl" id="printBtn">Print</button>
+  <button class="ctrl" id="exportBtn">Export</button>
+  <label class="ctrl" for="importInput">Import</label>
+  <input id="importInput" type="file" accept="application/json,.json" class="hidden" />
+</div>
+
+<script>
+"use strict";
+
+/* =========================================================================
+   DATA MODEL
+   problem = { id, title, text,
+               marks: { goal:[{start,end,phrase, findWorded,findSym, whenWorded,whenSym}],
+                        variables:[{start,end,phrase,content}],
+                        equations:[{start,end,phrase,content}] },
+               solution: [ "line with $math$", ... ] }
+
+   Marks are anchored by start/end character offsets into `text`, not by
+   re-searching for `phrase` (kept only as a human-readable label) — offsets
+   are unambiguous even when the same words appear more than once. Files
+   saved with the older {phrase,occurrence} format are upgraded on load, see
+   migrateMark().
+
+   Teaching order: GOAL -> VARIABLES -> EQUATIONS (then solve).
+   The goal is a fill-in sentence: "Find <findWorded> when <whenWorded>".
+   Once any variable is revealed, the blanks rewrite to the symbolic forms
+   (findSym / whenSym) in place — "Find" and "when" never move.
+   The "when" half is optional (omit the when fields for a plain "Find ___").
+   ========================================================================= */
+const STATES = ["goal","variables","equations"];
+const STATE_CLASS = { goal:"goal", variables:"var", equations:"eq" };
+
+const PRELOADED = [
+  {
+    id:"cooling", title:"Newton's law of cooling",
+    text:"The temperature T(t) °C of an object at time t seconds is modelled using Newton's Law of Cooling,\nT(t) = 15 + 4e^(-3t).\n\nWhat is the initial temperature of the object?",
+    marks:{
+      goal:[
+        { phrase:"What is the initial temperature of the object", findWorded:"the initial temperature", findSym:"$T(0)$", whenWorded:"", whenSym:"", start:121, end:166 }
+      ],
+      variables:[
+        { phrase:"time t seconds", content:"Let $t$ = time in seconds.", start:40, end:54 },
+        { phrase:"temperature T(t)", content:"Let $T$ = temperature in °C at time $t$.", start:4, end:20 }
+      ],
+      equations:[
+        { phrase:"T(t) = 15 + 4e^(-3t)", content:"$T(t) = 15 + 4e^{-3t}$", start:98, end:118 }
+      ]
+    },
+    solution:[
+      "Set $t = 0$ for the initial temperature: $T(0) = 15 + 4e^{-3(0)}$",
+      "$e^{0} = 1$, so $T(0) = 15 + 4(1)$",
+      "$T(0) = 15 + 4$",
+      "$T(0) = 19$",
+      "The initial temperature is $19\\text{°C}$."
+    ]
+  },
+  {
+    id:"andre-bob", title:"Andre and Bob's money",
+    text:"Andre has more money than Bob. If Andre gave Bob $20, they would have the same amount. While if Bob gave Andre $22, Andre would then have twice as much as Bob.\n\nHow much does each one actually have?",
+    marks:{
+      goal:[
+        { phrase:"How much does each one actually have", findWorded:"how much each of them has", findSym:"$a$ and $b$", whenWorded:"", whenSym:"", start:161, end:197 }
+      ],
+      variables:[
+        { phrase:"Andre", content:"Let $a$ = amount Andre has (dollars).", start:0, end:5 },
+        { phrase:"Bob", content:"Let $b$ = amount Bob has (dollars).", start:26, end:29 }
+      ],
+      equations:[
+        { phrase:"Andre gave Bob $20, they would have the same amount", content:"$a - 20 = b + 20$", start:34, end:85 },
+        { phrase:"Bob gave Andre $22, Andre would then have twice as much as Bob", content:"$a + 22 = 2(b - 22)$", start:96, end:158 }
+      ]
+    },
+    solution:[
+      "First condition: $a - 20 = b + 20 \\Rightarrow a = b + 40$",
+      "Substitute into the second: $(b+40) + 22 = 2(b-22)$",
+      "$b + 62 = 2b - 44$",
+      "$b = 106,\\quad a = b + 40 = 146$",
+      "Andre has 146 dollars and Bob has 106 dollars."
+    ]
+  },
+  {
+    id:"rancher-pen", title:"Rancher's pen (optimisation)",
+    text:"A rancher wants to build a rectangular pen, using one side of her barn for one side of the pen, and using 100m of fencing for the other three sides.\n\nWhat are the dimensions of the pen built this way that has the largest area?",
+    marks:{
+      goal:[
+        { phrase:"the dimensions of the pen built this way that has the largest area", findWorded:"the dimensions of the pen", findSym:"$x$ and $y$", whenWorded:"the area is as large as possible", whenSym:"$\\dfrac{dA}{dy} = 0$", start:159, end:225 }
+      ],
+      variables:[
+        { phrase:"one side of the pen", content:"Let $x$ = length of the side parallel to the barn (m).", start:75, end:94 },
+        { phrase:"the other three sides", content:"Let $y$ = length of each of the two sides perpendicular to the barn (m).", start:126, end:147 },
+        { phrase:"largest area", content:"Let $A$ = area of the pen (m²).", start:213, end:225 }
+      ],
+      equations:[
+        { phrase:"100m of fencing for the other three sides", content:"$x + 2y = 100$", start:106, end:147 },
+        { phrase:"largest area", content:"$A = xy$", start:213, end:225 }
+      ]
+    },
+    solution:[
+      "Fencing constraint: $x + 2y = 100 \\Rightarrow x = 100 - 2y$",
+      "Area: $A = xy = (100-2y)y = 100y - 2y^2$",
+      "$\\dfrac{dA}{dy} = 100 - 4y = 0 \\Rightarrow y = 25$",
+      "$x = 100 - 2(25) = 50$",
+      "Maximum area $A = 50 \\times 25 = 1250\\text{ m}^2$, when the pen is $50$m by $25$m."
+    ]
+  }
+];
+
+/* ---------------- state ---------------- */
+let problems = [];
+let current = 0;
+let currentFile = null;
+let activeState = "none";
+let revealedMarks = new Set();   // ids like "variables#0"
+let goalSym = null;   // goal words<->algebra toggle: null = auto (follow variables), true/false = manual override
+let solStep = 0;
+
+/* ---------------- IndexedDB helpers ---------------- */
+function idbOpen(){
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open("mqmt",1);
+    req.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains("questions")) d.createObjectStore("questions");
+      if(!d.objectStoreNames.contains("meta")) d.createObjectStore("meta");
+    };
+    req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error);
+  });
+}
+function idbGet(db,st,key){ return new Promise((res,rej)=>{ const r=db.transaction(st,"readonly").objectStore(st).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function idbPut(db,st,key,val){ return new Promise((res,rej)=>{ const r=db.transaction(st,"readwrite").objectStore(st).put(val,key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function idbDel(db,st,key){ return new Promise((res,rej)=>{ const r=db.transaction(st,"readwrite").objectStore(st).delete(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+function idbKeys(db,st){ return new Promise((res,rej)=>{ const r=db.transaction(st,"readonly").objectStore(st).getAllKeys(); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+
+/* ---------------- storage abstraction (File System API or IndexedDB) ---------------- */
+const store=(()=>{
+  let _db=null, _dir=null, _fh={};
+  const hasFS="showDirectoryPicker" in window;
+  async function getDB(){ if(!_db) _db=await idbOpen(); return _db; }
+  return {
+    get isFileSystem(){ return hasFS&&!!_dir; },
+    get hasFS(){ return hasFS; },
+
+    async openFolder(){
+      _dir=await window.showDirectoryPicker({mode:"readwrite"});
+      _fh={};
+      const d=await getDB(); await idbPut(d,"meta","dirHandle",_dir);
+    },
+
+    async restoreHandle(){
+      if(!hasFS) return false;
+      try{
+        const d=await getDB(); const h=await idbGet(d,"meta","dirHandle");
+        if(!h) return false;
+        const perm=await h.requestPermission({mode:"readwrite"});
+        if(perm!=="granted") return false;
+        _dir=h; _fh={}; return true;
+      }catch(e){ return false; }
+    },
+
+    async list(){
+      if(_dir){
+        const items=[]; _fh={};
+        for await(const [name,handle] of _dir.entries()){
+          if(!name.endsWith(".json")) continue;
+          _fh[name]=handle;
+          try{
+            const text=await(await handle.getFile()).text();
+            const p=JSON.parse(text);
+            items.push({name, title:p.title||name.replace(/\.json$/,"")});
+          }catch{ items.push({name, title:name.replace(/\.json$/,"")}); }
+        }
+        return items.sort((a,b)=>a.name.localeCompare(b.name));
+      }else{
+        const d=await getDB(); const keys=await idbKeys(d,"questions"); const items=[];
+        for(const k of keys){
+          const p=await idbGet(d,"questions",k);
+          items.push({name:k, title:(p&&p.title)||k.replace(/\.json$/,"")});
+        }
+        return items.sort((a,b)=>a.name.localeCompare(b.name));
+      }
+    },
+
+    async load(name){
+      if(_dir){
+        const h=_fh[name]||await _dir.getFileHandle(name);
+        _fh[name]=h; return JSON.parse(await(await h.getFile()).text());
+      }else{
+        const d=await getDB(); return idbGet(d,"questions",name);
+      }
+    },
+
+    async save(name,problem){
+      if(_dir){
+        const h=_fh[name]||await _dir.getFileHandle(name,{create:true});
+        _fh[name]=h;
+        const w=await h.createWritable();
+        await w.write(JSON.stringify(problem,null,2)); await w.close();
+      }else{
+        const d=await getDB(); await idbPut(d,"questions",name,problem);
+      }
+    },
+
+    async remove(name){
+      if(_dir){ try{ await _dir.removeEntry(name); }catch(e){} delete _fh[name]; }
+      else{ const d=await getDB(); await idbDel(d,"questions",name); }
+    },
+
+    async seedIfEmpty(arr){
+      const d=await getDB(); const keys=await idbKeys(d,"questions");
+      if(keys.length>0) return;
+      for(const p of arr) await idbPut(d,"questions",(p.id||"problem")+".json",p);
+    }
+  };
+})();
+
+/* one-time upgrade for files saved before marks stored start/end offsets:
+   resolve the old phrase+occurrence search once, then persist the offsets */
+function migrateMark(text, m){
+  if(m.start!=null && m.end!=null){ delete m.occurrence; return m; }
+  if(m.phrase){
+    let from=0, idx=-1, occ=m.occurrence||1;
+    for(let k=0;k<occ;k++){ idx=text.indexOf(m.phrase,from); if(idx===-1) break; from=idx+m.phrase.length; }
+    if(idx!==-1){ m.start=idx; m.end=idx+m.phrase.length; }
+  }
+  delete m.occurrence;
+  return m;
+}
+function normalizeProblem(p){
+  p.marks=p.marks||{}; p.marks.goal=p.marks.goal||[]; p.marks.variables=p.marks.variables||[]; p.marks.equations=p.marks.equations||[]; p.solution=p.solution||[];
+  const text=p.text||"";
+  STATES.forEach(state=>{ p.marks[state].forEach(m=>migrateMark(text,m)); });
+  return p;
+}
+async function loadFromStore(name){
+  currentFile=name; const p=normalizeProblem(await store.load(name));
+  problems=[p]; current=0; document.getElementById("examplePicker").value=name; loadCurrent(true);
+}
+async function initStore(){
+  const hasFSAPI="showDirectoryPicker" in window;
+  document.getElementById("openFolderBtn").style.display=hasFSAPI?"":"none";
+  if(hasFSAPI){
+    const restored=await store.restoreHandle();
+    if(restored){
+      await refreshPicker(); const items=await store.list();
+      if(items.length>0){ await loadFromStore(items[0].name); return; }
+    }
+  }
+  await store.seedIfEmpty(PRELOADED);
+  await refreshPicker(); const items=await store.list();
+  if(items.length>0) await loadFromStore(items[0].name);
+}
+
+/* ---------------- math-aware render ---------------- */
+function renderMixed(str){
+  const span = document.createElement("span");
+  String(str).split("$").forEach((part,i)=>{
+    if(i%2===1 && part.length){
+      const m=document.createElement("span");
+      try{ window.katex ? katex.render(part,m,{throwOnError:false}) : (m.textContent=part); }
+      catch(e){ m.textContent=part; }
+      span.appendChild(m);
+    } else if(part.length){ span.appendChild(document.createTextNode(part)); }
+  });
+  return span;
+}
+function appendText(parent, text){
+  text.split(/\n{2,}/).forEach((c,i)=>{
+    if(i>0){ parent.appendChild(document.createElement("br")); parent.appendChild(document.createElement("br")); }
+    parent.appendChild(document.createTextNode(c.replace(/\n/g," ")));
+  });
+}
+
+/* ---------------- resolve spans ----------------
+   Marks are anchored to the problem text by exact character offsets
+   (m.start/m.end), not by re-searching for the phrase. Searching breaks as
+   soon as a phrase repeats elsewhere in the text (wrong occurrence) or the
+   text is edited (occurrence count shifts) — offsets don't have that
+   ambiguity. `m.phrase` is kept only as a human-readable label. */
+function resolveSpans(p, state){
+  const text=p.text||""; const arr=(p.marks&&p.marks[state])||[]; const out=[];
+  arr.forEach((m,i)=>{
+    const start=m.start, end=m.end;
+    if(start==null || end==null || start<0 || end<=start || end>text.length) return;
+    out.push({ start, end, content:m.content, id:state+"#"+i, idx:i, state });
+  });
+  out.sort((a,b)=>a.start-b.start);
+  const clean=[]; let last=-1;
+  out.forEach(s=>{ if(s.start>=last){ clean.push(s); last=s.end; } });
+  return clean;
+}
+
+/* ---------------- per-char run builder (active step only) ---------------- */
+function computeRuns(p){
+  const text=p.text||""; const len=text.length;
+  if(activeState==="none") return [{kind:"plain", text}];
+  const spans=resolveSpans(p, activeState);
+  const of=new Array(len).fill(-1);
+  spans.forEach((s,si)=>{ for(let i=s.start;i<s.end;i++) of[i]=si; });
+  const runs=[]; let i=0;
+  while(i<len){
+    if(of[i]>=0){ const si=of[i]; let j=i+1; while(j<len && of[j]===si) j++; runs.push({kind:"active", text:text.slice(i,j), span:spans[si]}); i=j; }
+    else { let j=i+1; while(j<len && of[j]<0) j++; runs.push({kind:"plain", text:text.slice(i,j)}); i=j; }
+  }
+  return runs;
+}
+
+function renderProblem(){
+  const p=problems[current]; const host=document.getElementById("problemText");
+  host.innerHTML="";
+  const text=p.text||""; const len=text.length;
+
+  // which active-step span (if any) covers each char -> clickable
+  const activeSpans = activeState==="none" ? [] : resolveSpans(p, activeState);
+  const activeOf=new Array(len).fill(-1);
+  activeSpans.forEach((s,si)=>{ for(let i=s.start;i<s.end;i++) activeOf[i]=si; });
+
+  // which states have a REVEALED mark covering each char
+  const revOf={};
+  STATES.forEach(st=>{ const a=new Array(len).fill(false);
+    resolveSpans(p,st).forEach(s=>{ if(revealedMarks.has(s.id)){ for(let i=s.start;i<s.end;i++) a[i]=true; } });
+    revOf[st]=a; });
+
+  const inactRevealed=i=>STATES.filter(st=>st!==activeState && revOf[st][i]);
+  const desc=i=>activeOf[i]+"|"+(activeState!=="none"&&revOf[activeState][i]?"1":"0")+"|"+inactRevealed(i).join(",");
+
+  let i=0;
+  while(i<len){
+    const key=desc(i); let j=i+1; while(j<len && desc(j)===key) j++;
+    const chunk=text.slice(i,j); const am=activeOf[i];
+    if(am>=0){
+      const span=activeSpans[am]; const aRev=revealedMarks.has(span.id);
+      const b=document.createElement("span"); b.setAttribute("role","button"); b.tabIndex=0;
+      b.className="mk act "+STATE_CLASS[activeState]+(aRev?" done":"");
+      appendText(b,chunk);
+      b.onclick=()=>toggleMark(span);
+      b.onkeydown=(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); toggleMark(span); } };
+      host.appendChild(b);
+    } else {
+      const inact=inactRevealed(i);
+      if(!inact.length){ appendText(host,chunk); }
+      else {
+        const s=document.createElement("span");
+        if(inact.length>1){
+          s.className="mk rev multi";
+          s.style.backgroundImage=inact.map(st=>"linear-gradient(var(--c-"+STATE_CLASS[st]+"-tint),var(--c-"+STATE_CLASS[st]+"-tint))").join(",");
+        } else { s.className="mk rev grey"; }
+        appendText(s,chunk); host.appendChild(s);
+      }
+    }
+    i=j;
+  }
+}
+
+function varsRevealed(){
+  for(const id of revealedMarks){ if(id.indexOf("variables#")===0) return true; }
+  return false;
+}
+
+/* goal fallbacks (also covers old imported {worded,content} goals) */
+function goalParts(m){
+  return {
+    findWorded: m.findWorded!=null ? m.findWorded : (m.worded||""),
+    findSym:    m.findSym!=null ? m.findSym : (m.content||""),
+    whenWorded: m.whenWorded||"",
+    whenSym:    m.whenSym||""
+  };
+}
+
+/* escape plain text for KaTeX \text{} so words typeset in the same engine as the maths */
+function texEscape(s){
+  return String(s)
+    .replace(/\\/g,"\\textbackslash ")
+    .replace(/([&%$#_{}])/g,"\\$1")
+    .replace(/~/g,"\\textasciitilde ")
+    .replace(/\^/g,"\\textasciicircum ");
+}
+
+/* render a mixed "$math$ + words" string as ONE KaTeX box, so the worded and
+   symbolic goal forms share identical metrics and swap with zero layout shift */
+function renderGoalContent(str){
+  const span=document.createElement("span");
+  const tex=String(str).split("$").map((part,i)=>{
+    if(i%2===1) return part;            // inside $...$ : raw TeX
+    return part ? "\\text{"+texEscape(part)+"}" : "";
+  }).join("");
+  try{ window.katex ? katex.render(tex, span, {throwOnError:false}) : (span.textContent=String(str).replace(/\$/g,"")); }
+  catch(e){ span.textContent=String(str).replace(/\$/g,""); }
+  return span;
+}
+
+function renderGoal(){
+  const p=problems[current];
+  const goalArr=(p.marks&&p.marks.goal)||[];
+  let m=null;
+  for(let i=0;i<goalArr.length;i++){ if(revealedMarks.has("goal#"+i)){ m=goalArr[i]; break; } }
+
+  const slotFind=document.getElementById("slotFind");
+  const slotWhen=document.getElementById("slotWhen");
+  const whenWord=document.getElementById("goalWhen");
+  const toggle=document.getElementById("goalToggle");
+  const sym = goalSym!==null ? goalSym : varsRevealed();
+
+  // Stack the worded and symbolic forms in the same grid cell. The slot always
+  // sizes to the WIDER of the two and we only flip which one is visible, so
+  // "Find" / "when" and the whole line stay perfectly still on every swap.
+  function fill(slot, worded, symbol, reserve){
+    slot.innerHTML="";
+    const hasVal = !!(worded || symbol);
+    slot.classList.toggle("empty", reserve || !hasVal);
+    if(!hasVal){ const g=document.createElement("span"); g.className="gv"; g.innerHTML=" "; slot.appendChild(g); return; }
+    const gw=document.createElement("span"); gw.className="gv"; gw.appendChild(renderGoalContent(worded||symbol));
+    const gs=document.createElement("span"); gs.className="gv"; gs.appendChild(renderGoalContent(symbol||worded));
+    // reserve = keep BOTH forms hidden so the slot pre-sizes to its final width
+    if(reserve){ gw.classList.add("off"); gs.classList.add("off"); }
+    else (sym ? gw : gs).classList.add("off");
+    slot.appendChild(gw); slot.appendChild(gs);
+  }
+
+  if(!m){
+    // unrevealed: reserve the eventual width using the first goal mark, but show
+    // nothing yet — so "Find"/"when" and the slots never move once filled in
+    const rm = goalArr[0] ? goalParts(goalArr[0]) : null;
+    if(rm){
+      fill(slotFind, rm.findWorded, rm.findSym, true);
+      const rHasWhen = !!(rm.whenWorded || rm.whenSym);
+      whenWord.classList.toggle("hidden", !rHasWhen);
+      slotWhen.style.display = rHasWhen ? "" : "none";
+      if(rHasWhen) fill(slotWhen, rm.whenWorded, rm.whenSym, true);
+    } else {
+      slotFind.classList.add("empty"); slotFind.innerHTML='<span class="gv"> </span>';
+      slotWhen.classList.add("empty"); slotWhen.innerHTML='<span class="gv"> </span>';
+      whenWord.classList.remove("hidden"); slotWhen.style.display="";
+    }
+    toggle.hidden=true;
+    return;
+  }
+  const gp=goalParts(m);
+  fill(slotFind, gp.findWorded, gp.findSym);
+  const hasWhen = !!(gp.whenWorded || gp.whenSym);
+  whenWord.classList.toggle("hidden", !hasWhen);
+  slotWhen.style.display = hasWhen ? "" : "none";
+  if(hasWhen) fill(slotWhen, gp.whenWorded, gp.whenSym);
+
+  // toggle button: only meaningful when symbolic forms exist
+  const hasSym = !!(gp.findSym || gp.whenSym);
+  toggle.hidden = !hasSym;
+  if(hasSym){
+    toggle.innerHTML = sym
+      ? '<span aria-hidden="true">⇄</span> words'
+      : '<span aria-hidden="true">⇄</span> algebra';
+    toggle.setAttribute("aria-label", sym ? "Show the goal in words" : "Show the goal in algebra");
+  }
+}
+
+function renderRegions(){
+  const p=problems[current];
+  ["variables","equations"].forEach(state=>{
+    const reg=document.querySelector('.region[data-state="'+state+'"]');
+    const hostB=reg.querySelector(".block-host");
+    const ph=reg.querySelector(".placeholder");
+    hostB.innerHTML="";
+    const spans=resolveSpans(p,state).filter(s=>revealedMarks.has(s.id));
+    if(spans.length){
+      ph.style.display="none";
+      spans.forEach(s=>{ const b=document.createElement("div"); b.className="block"; b.appendChild(renderMixed(s.content)); hostB.appendChild(b); });
+    } else { ph.style.display = (activeState===state) ? "none" : ""; }
+  });
+  renderGoal();
+  const eqSpans=resolveSpans(p,"equations").filter(s=>revealedMarks.has(s.id));
+  document.getElementById("solWrap").classList.toggle("hidden-empty", eqSpans.length===0);
+  updateEqTappable();
+}
+
+/* eq area: tap anywhere to reveal the next line of working, once one is available */
+function eqNextAvailable(){
+  const p=problems[current];
+  if(document.getElementById("solWrap").classList.contains("hidden-empty")) return false;
+  return !!(p.solution && solStep < p.solution.length);
+}
+function updateEqTappable(){
+  document.getElementById("regEq").classList.toggle("tappable", eqNextAvailable());
+}
+
+function updateRegionStyles(){
+  document.getElementById("workPane").classList.toggle("focusing", activeState!=="none");
+  STATES.forEach(state=>{
+    document.querySelector('.region[data-state="'+state+'"]').classList.toggle("active", activeState===state);
+  });
+  document.querySelectorAll(".step").forEach(st=>{
+    const state=st.dataset.state;
+    st.classList.toggle("on", activeState===state);
+    const has=resolveSpans(problems[current],state).some(s=>revealedMarks.has(s.id));
+    st.classList.toggle("filled", has);
+  });
+}
+
+function toggleMark(span){
+  if(revealedMarks.has(span.id)) revealedMarks.delete(span.id);
+  else { revealedMarks.add(span.id); flash(span); }
+  renderProblem(); renderRegions(); updateRegionStyles();
+}
+function flash(span){
+  const reg=document.querySelector('.region[data-state="'+span.state+'"]');
+  if(reg){ reg.classList.add("flash"); setTimeout(()=>reg.classList.remove("flash"),350); }
+}
+
+function setActiveState(state){
+  activeState = (activeState===state) ? "none" : state;
+  renderProblem(); renderRegions(); updateRegionStyles();
+}
+
+/* ---------------- solution ---------------- */
+function setupSolution(){
+  const btn=document.getElementById("solBtn"); const p=problems[current];
+  solStep=0; document.getElementById("solHost").innerHTML="";
+  if(!p.solution || !p.solution.length){ btn.style.display="none"; return; }
+  btn.style.display=""; btn.disabled=false; btn.textContent="Show solution";
+  updateEqTappable();
+}
+function advanceSolution(){
+  const p=problems[current], btn=document.getElementById("solBtn"), host=document.getElementById("solHost");
+  if(solStep>=p.solution.length) return;
+  const line=document.createElement("div"); line.className="sol-line"; line.appendChild(renderMixed(p.solution[solStep])); host.appendChild(line);
+  solStep++;
+  if(solStep>=p.solution.length){ btn.textContent="Solution complete"; btn.disabled=true; }
+  else btn.textContent="Next line ▸";
+  updateEqTappable();
+}
+
+/* ---------------- load / picker ---------------- */
+function render(){ renderProblem(); renderRegions(); updateRegionStyles(); }
+function loadCurrent(reset){
+  if(reset){ revealedMarks.clear(); activeState="none"; solStep=0; goalSym=null; }
+  render(); setupSolution();
+}
+async function refreshPicker(){
+  const sel=document.getElementById("examplePicker"); sel.innerHTML="";
+  const items=await store.list();
+  items.forEach(({name,title})=>{ const o=document.createElement("option"); o.value=name; o.textContent=title; sel.appendChild(o); });
+  if(currentFile) sel.value=currentFile;
+}
+
+/* ---------------- print: blank worksheet / answer key ---------------- */
+function blankLines(n){ let h=""; for(let k=0;k<n;k++) h+='<div class="wl"></div>'; return h; }
+function buildPrintSheet(mode){
+  const p=problems[current];
+  const sheet=document.getElementById("printSheet");
+  const answers = (mode==="answers");
+  sheet.innerHTML="";
+
+  const head=document.createElement("div"); head.className="ps-head";
+  const left=document.createElement("div");
+  left.innerHTML='<div class="ps-kicker">Maths · Modelling a word problem</div>'+
+                 '<div class="ps-title">'+escapeHtml(p.title||"Problem")+(answers?'  —  Answer key':'')+'</div>';
+  const right=document.createElement("div"); right.className="ps-name";
+  right.innerHTML = answers ? '' : 'Name <span></span>&nbsp;&nbsp; Date <span style="min-width:90px"></span>';
+  head.appendChild(left); head.appendChild(right); sheet.appendChild(head);
+
+  const prob=document.createElement("div"); prob.className="ps-problem"; appendText(prob, p.text||""); sheet.appendChild(prob);
+
+  const secs=[
+    ["1","Goal","Find ___ when ___ (words, then symbols)", 2, ()=>goalAnswer(p)],
+    ["2","Variables","name each quantity with a letter", 3, ()=>listAnswer(p,"variables")],
+    ["3","Equations","turn each fact into an equation", 3, ()=>listAnswer(p,"equations")],
+    ["4","Solution","solve it, line by line", 7, ()=>solAnswer(p)]
+  ];
+  secs.forEach(([n,label,cue,lines,ans])=>{
+    const sec=document.createElement("div"); sec.className="ps-sec";
+    const h=document.createElement("h4");
+    h.innerHTML='<span class="pn">'+n+'</span> '+escapeHtml(label)+'<span class="pcue">'+escapeHtml(cue)+'</span>';
+    sec.appendChild(h);
+    const body=document.createElement("div"); body.className="ps-body";
+    if(answers){ body.appendChild(ans()); } else { body.innerHTML=blankLines(lines); }
+    sec.appendChild(body); sheet.appendChild(sec);
+  });
+
+  const foot=document.createElement("div"); foot.className="ps-foot";
+  foot.textContent = answers ? "ANSWER KEY" : "GOAL → VARIABLES → EQUATIONS → SOLVE";
+  sheet.appendChild(foot);
+}
+function goalSentence(gp, sym){
+  const f = sym ? (gp.findSym||gp.findWorded) : gp.findWorded;
+  const w = sym ? (gp.whenSym||gp.whenWorded) : gp.whenWorded;
+  let s = "Find "; s += f||"___";
+  if(gp.whenWorded||gp.whenSym){ s += " when " + (w||"___"); }
+  return s;
+}
+function goalAnswer(p){
+  const wrap=document.createElement("div"); wrap.className="ps-ans";
+  ((p.marks&&p.marks.goal)||[]).forEach(m=>{
+    const gp=goalParts(m);
+    const a1=document.createElement("div"); a1.className="a"; a1.appendChild(renderMixed(goalSentence(gp,false))); wrap.appendChild(a1);
+    const a2=document.createElement("div"); a2.className="a"; a2.appendChild(document.createTextNode("↳ ")); a2.appendChild(renderMixed(goalSentence(gp,true))); wrap.appendChild(a2);
+  });
+  return wrap;
+}
+function listAnswer(p,state){
+  const wrap=document.createElement("div"); wrap.className="ps-ans";
+  ((p.marks&&p.marks[state])||[]).forEach(m=>{ if(m.content){ const a=document.createElement("div"); a.className="a"; a.appendChild(renderMixed(m.content)); wrap.appendChild(a);} });
+  return wrap;
+}
+function solAnswer(p){
+  const wrap=document.createElement("div"); wrap.className="ps-ans";
+  (p.solution||[]).forEach(s=>{ const a=document.createElement("div"); a.className="a sol"; a.appendChild(renderMixed(s)); wrap.appendChild(a); });
+  return wrap;
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+window.addEventListener("beforeprint",()=>{ buildPrintSheet(document.getElementById("printMode").value); });
+
+/* ---------------- view switch ---------------- */
+function setView(name){
+  document.getElementById("presentView").classList.toggle("hidden", name!=="present");
+  document.getElementById("authorView").classList.toggle("hidden", name!=="author");
+  document.getElementById("frameworkView").classList.toggle("hidden", name!=="framework");
+  document.getElementById("mPresent").setAttribute("aria-pressed", name==="present");
+  document.getElementById("mAuthor").setAttribute("aria-pressed", name==="author");
+  document.getElementById("mFramework").setAttribute("aria-pressed", name==="framework");
+  if(name==="author") renderAuthor();
+}
+
+/* ---------------- author ---------------- */
+let prevState="none";
+function renderAuthor(){
+  const p=problems[current];
+  document.getElementById("titleInput").value=p.title||"";
+  document.getElementById("ptext").value=p.text||"";
+  renderMarkGroups(); renderSolEditor(); renderAuthorPreview();
+}
+function selectionInfo(){
+  const ta=document.getElementById("ptext");
+  const s=ta.selectionStart, e=ta.selectionEnd;
+  if(s===e) return null;
+  return { phrase:ta.value.slice(s,e), start:s, end:e };
+}
+function addMark(state){
+  const info=selectionInfo();
+  if(!info){ alert("Select a word or phrase in the problem text first."); return; }
+  const p=problems[current]; p.marks=p.marks||{goal:[],variables:[],equations:[]};
+  p.marks[state]=p.marks[state]||[];
+  const m={ phrase:info.phrase, start:info.start, end:info.end };
+  if(state==="goal"){ m.findWorded=""; m.findSym=""; m.whenWorded=""; m.whenSym=""; }
+  else m.content="";
+  p.marks[state].push(m);
+  renderMarkGroups(); renderAuthorPreview();
+}
+/* keep marks pointing at the right words when the problem text is edited.
+   diff old vs new text (common prefix/suffix around the edit); marks entirely
+   before or after the edit just shift by the length delta, marks overlapping
+   the edited text can't be trusted anymore so their offsets are cleared
+   (the row is flagged in the editor so the author can re-select). */
+function commonPrefixLen(a,b,cap){
+  const n=Math.min(a.length,b.length,cap==null?Infinity:cap); let i=0;
+  while(i<n && a[i]===b[i]) i++; return i;
+}
+function commonSuffixLen(a,b,cap){
+  const n=Math.min(a.length,b.length,cap==null?Infinity:cap); let i=0;
+  while(i<n && a[a.length-1-i]===b[b.length-1-i]) i++; return i;
+}
+function shiftMarksOnEdit(p, oldText, newText, caret){
+  if(oldText===newText) return;
+  let prefix, suffix;
+  // A <textarea> only ever makes one edit at the caret, so the text strictly
+  // after the caret in the new value is guaranteed untouched — anchor the
+  // diff there instead of a blind longest-common-prefix/suffix, which can
+  // misjudge things when the inserted text happens to share a prefix with
+  // whatever follows it (e.g. prepending a sentence that also starts with a
+  // name already used later in the problem).
+  if(caret!=null){
+    const tailLen=newText.length-caret, oldTailStart=oldText.length-tailLen;
+    if(tailLen>=0 && oldTailStart>=0 && oldText.slice(oldTailStart)===newText.slice(caret)){
+      suffix=tailLen;
+      prefix=commonPrefixLen(oldText,newText,Math.min(oldTailStart,caret));
+    }
+  }
+  if(suffix==null){
+    prefix=commonPrefixLen(oldText,newText);
+    suffix=commonSuffixLen(oldText,newText,Math.min(oldText.length,newText.length)-prefix);
+  }
+  const oldChangeEnd=oldText.length-suffix;
+  const delta=newText.length-oldText.length;
+  STATES.forEach(state=>{
+    (p.marks[state]||[]).forEach(m=>{
+      if(m.start==null || m.end==null) return;
+      if(m.end<=prefix) return;
+      if(m.start>=oldChangeEnd){ m.start+=delta; m.end+=delta; }
+      else { m.start=null; m.end=null; }
+    });
+  });
+}
+function renderMarkGroups(){
+  const p=problems[current];
+  const meta={ goal:["grpGoal","1 Goal","goal"], variables:["grpVariables","2 Variables","var"], equations:["grpEquations","3 Equations","eq"] };
+  STATES.forEach(state=>{
+    const [hostId,label,cls]=meta[state];
+    const host=document.getElementById(hostId); host.innerHTML="";
+    const head=document.createElement("div"); head.className="gh";
+    head.innerHTML='<span class="sw" style="background:var(--c-'+cls+')"></span>'+label;
+    host.appendChild(head);
+    const arr=(p.marks&&p.marks[state])||[];
+    if(!arr.length){ const e=document.createElement("p"); e.className="hintline"; e.textContent="No phrases yet."; host.appendChild(e); }
+    const text=p.text||"";
+    arr.forEach((m,i)=>{
+      const row=document.createElement("div"); row.className="markrow";
+      const valid = m.start!=null && m.end!=null && m.start>=0 && m.end<=text.length && m.end>m.start;
+      const ph=document.createElement("div"); ph.className="ph";
+      const labelEl=document.createElement("span");
+      if(valid){ m.phrase=text.slice(m.start,m.end); labelEl.textContent='"'+m.phrase+'"'; }
+      else { labelEl.textContent="⚠ text changed — reselect the words below"; labelEl.style.color="#a3232b"; }
+      ph.appendChild(labelEl);
+      const reselect=document.createElement("button"); reselect.className="mini"+(valid?"":" danger"); reselect.textContent="Re-select";
+      reselect.title="Select the words for this mark in the box above, then click here to point it at that selection.";
+      reselect.onclick=()=>{
+        const info=selectionInfo();
+        if(!info){ alert("Select a word or phrase in the problem text first."); return; }
+        m.start=info.start; m.end=info.end; m.phrase=info.phrase;
+        renderMarkGroups(); renderAuthorPreview();
+      };
+      ph.appendChild(reselect);
+      row.appendChild(ph);
+      if(state==="goal"){
+        const gp=goalParts(m);
+        const stack=document.createElement("div"); stack.className="stack";
+        const fw=mkInput(gp.findWorded,"Find… (words)", v=>{ m.findWorded=v; renderAuthorPreview(); });
+        const fs=mkInput(gp.findSym,"Find… (symbols, $...$)", v=>{ m.findSym=v; renderAuthorPreview(); });
+        const ww=mkInput(gp.whenWorded,"when… (words, optional)", v=>{ m.whenWorded=v; renderAuthorPreview(); });
+        const ws=mkInput(gp.whenSym,"when… (symbols, optional)", v=>{ m.whenSym=v; renderAuthorPreview(); });
+        // normalise legacy keys onto the new ones
+        m.findWorded=gp.findWorded; m.findSym=gp.findSym; m.whenWorded=gp.whenWorded; m.whenSym=gp.whenSym; delete m.worded; delete m.content;
+        stack.appendChild(fw); stack.appendChild(fs); stack.appendChild(ww); stack.appendChild(ws);
+        row.appendChild(stack);
+      } else {
+        const inp=mkInput(m.content,"What this reveals (use $...$ for maths)", v=>{ m.content=v; renderAuthorPreview(); });
+        row.appendChild(inp);
+      }
+      const rm=document.createElement("button"); rm.className="mini danger"; rm.textContent="✕";
+      rm.onclick=()=>{ arr.splice(i,1); renderMarkGroups(); renderAuthorPreview(); };
+      row.appendChild(rm);
+      host.appendChild(row);
+    });
+  });
+}
+function mkInput(val, ph, oninput){
+  const inp=document.createElement("input"); inp.type="text"; inp.value=val||""; inp.placeholder=ph;
+  inp.oninput=()=>oninput(inp.value); return inp;
+}
+function renderSolEditor(){
+  const p=problems[current]; const host=document.getElementById("solEditHost"); host.innerHTML="";
+  (p.solution||[]).forEach((line,i)=>{
+    const row=document.createElement("div"); row.className="row"; row.style.margin=".4rem 0";
+    const inp=document.createElement("input"); inp.type="text"; inp.value=line; inp.style.cssText="flex:1 1 auto;font:inherit;font-size:.9rem;padding:.4rem .5rem;border:1px solid var(--hair)";
+    inp.oninput=()=>{ p.solution[i]=inp.value; };
+    const up=document.createElement("button"); up.className="mini"; up.textContent="↑";
+    up.onclick=()=>{ if(i>0){ [p.solution[i-1],p.solution[i]]=[p.solution[i],p.solution[i-1]]; renderSolEditor(); } };
+    const rm=document.createElement("button"); rm.className="mini danger"; rm.textContent="✕";
+    rm.onclick=()=>{ p.solution.splice(i,1); renderSolEditor(); };
+    row.appendChild(inp); row.appendChild(up); row.appendChild(rm); host.appendChild(row);
+  });
+}
+function renderAuthorPreview(){
+  const p=problems[current];
+  const sb=document.getElementById("prevStates"); sb.innerHTML="";
+  [["goal","Goal","goal"],["variables","Variables","var"],["equations","Equations","eq"]].forEach(([st,lbl,cls])=>{
+    const b=document.createElement("button"); b.className="mini "+cls; b.textContent=lbl;
+    if(prevState===st) b.style.fontWeight="700";
+    b.onclick=()=>{ prevState=(prevState===st)?"none":st; renderAuthorPreview(); };
+    sb.appendChild(b);
+  });
+  const probHost=document.getElementById("authorPreviewProblem"); probHost.innerHTML="";
+  const savedActive=activeState; activeState=prevState;
+  const runs=computeRuns(p); activeState=savedActive;
+  runs.forEach(run=>{
+    if(run.kind==="plain"){ appendText(probHost,run.text); }
+    else { const s=document.createElement("span"); s.className="mk act done "+STATE_CLASS[prevState]; appendText(s,run.text); probHost.appendChild(s); }
+  });
+  const rHost=document.getElementById("authorPreviewRegions"); rHost.innerHTML="";
+  [["goal","1 Goal","goal"],["variables","2 Variables","var"],["equations","3 Equations","eq"]].forEach(([st,lbl,cls])=>{
+    const wrap=document.createElement("div"); wrap.style.margin=".6rem 0";
+    const h=document.createElement("div"); h.className="gh"; h.innerHTML='<span class="sw" style="display:inline-block;width:.8rem;height:.8rem;background:var(--c-'+cls+')"></span> '+lbl;
+    wrap.appendChild(h);
+    ((p.marks&&p.marks[st])||[]).forEach(m=>{
+      if(st==="goal"){
+        const gp=goalParts(m);
+        const b1=document.createElement("div"); b1.className="block"; b1.style.fontSize="1.1rem"; b1.appendChild(renderMixed(goalSentence(gp,false))); wrap.appendChild(b1);
+        const b2=document.createElement("div"); b2.className="block"; b2.style.cssText="font-size:1.1rem;font-weight:600"; b2.appendChild(document.createTextNode("↳ ")); b2.appendChild(renderMixed(goalSentence(gp,true))); wrap.appendChild(b2);
+      } else if(m.content){ const b=document.createElement("div"); b.className="block"; b.style.fontSize="1.1rem"; b.appendChild(renderMixed(m.content)); wrap.appendChild(b); }
+    });
+    rHost.appendChild(wrap);
+  });
+}
+
+/* ---------------- toolbar autohide ---------------- */
+function showBar(){ document.getElementById("toolbar").classList.add("show"); }
+function hideBar(){ document.getElementById("toolbar").classList.remove("show"); }
+let hideTimer=null;
+function scheduleHide(){ clearTimeout(hideTimer); hideTimer=setTimeout(hideBar,500); }
+
+/* ---------------- wiring ---------------- */
+document.addEventListener("DOMContentLoaded",async()=>{
+
+  document.querySelectorAll(".step").forEach(s=>{
+    s.addEventListener("click",()=>setActiveState(s.dataset.state));
+  });
+  document.getElementById("goalToggle").addEventListener("click",(e)=>{
+    e.stopPropagation();
+    const cur = goalSym!==null ? goalSym : varsRevealed();
+    goalSym = !cur;
+    renderGoal();
+  });
+
+  // Region clicks. While a state is active, clicking inside ANOTHER state's box
+  // deselects (-> no state). Otherwise the box behaves normally (header toggles,
+  // equations box taps to advance the solution).
+  function regionClick(state, e){
+    if(e.target.closest("#toolbar, #handle, #goalToggle")) return;
+    if(activeState!=="none" && activeState!==state){
+      activeState="none";
+      renderProblem(); renderRegions(); updateRegionStyles();
+      return;
+    }
+    if(e.target.closest(".region-head, .goal-head")){ setActiveState(state); return; }
+    if(state==="equations"){
+      if(e.target.closest(".sol-btn")) return;   // its own handler advances
+      if(eqNextAvailable()) advanceSolution();
+    }
+  }
+  document.getElementById("regGoal").addEventListener("click",e=>regionClick("goal",e));
+  document.getElementById("regVar").addEventListener("click",e=>regionClick("variables",e));
+  document.getElementById("regEq").addEventListener("click",e=>regionClick("equations",e));
+
+  // double-click / double-tap anywhere in the LEFT panel (except the step buttons)
+  // -> briefly flash where the current step's words are
+  document.querySelector(".problem-pane").addEventListener("dblclick",(e)=>{
+    if(e.target.closest(".step-buttons")) return;
+    if(activeState==="none") return;
+    const sel=window.getSelection&&window.getSelection(); if(sel&&sel.removeAllRanges) sel.removeAllRanges();
+    const marks=document.querySelectorAll("#problemText .mk.act");
+    marks.forEach(m=>{ m.classList.remove("peek"); void m.offsetWidth; m.classList.add("peek"); });
+    setTimeout(()=>marks.forEach(m=>m.classList.remove("peek")),480);
+  });
+
+  document.getElementById("mPresent").onclick=()=>setView("present");
+  document.getElementById("mAuthor").onclick=()=>setView("author");
+  document.getElementById("mFramework").onclick=()=>setView("framework");
+
+  document.getElementById("examplePicker").onchange=async e=>{ await loadFromStore(e.target.value); };
+  document.getElementById("solBtn").onclick=advanceSolution;
+  document.getElementById("resetReveals").onclick=()=>{ revealedMarks.clear(); activeState="none"; setupSolution(); render(); };
+
+  let scale=1;
+  const apply=()=>document.documentElement.style.setProperty("--scale",scale.toFixed(2));
+  document.getElementById("fontUp").onclick=()=>{ scale=Math.min(1.8,scale+0.1); apply(); };
+  document.getElementById("fontDown").onclick=()=>{ scale=Math.max(0.8,scale-0.1); apply(); };
+
+  document.getElementById("printBtn").onclick=()=>window.print();
+
+  document.getElementById("exportBtn").onclick=()=>{
+    const p=problems[current];
+    const name=currentFile||(p.id||"problem")+".json";
+    const blob=new Blob([JSON.stringify(p,null,2)],{type:"application/json"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); URL.revokeObjectURL(a.href);
+  };
+  document.getElementById("importInput").onchange=async e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const r=new FileReader();
+    r.onload=async()=>{ try{
+        const data=JSON.parse(r.result); const arr=Array.isArray(data)?data:[data];
+        let firstName=null;
+        for(const p of arr){
+          normalizeProblem(p);
+          const name=((p.id||p.title||"problem").replace(/[^a-z0-9\-_]+/gi,"-").toLowerCase())+".json";
+          if(!firstName) firstName=name;
+          await store.save(name,p);
+        }
+        await refreshPicker();
+        if(firstName) await loadFromStore(firstName);
+        setView("present");
+      }catch(err){ alert("That file could not be read as problem JSON."); } };
+    r.readAsText(file); e.target.value="";
+  };
+
+  document.getElementById("openFolderBtn").onclick=async()=>{
+    try{
+      await store.openFolder();
+      await refreshPicker();
+      const items=await store.list();
+      if(items.length>0) await loadFromStore(items[0].name);
+      else alert("No JSON files found in that folder. Use 'New' to create a question.");
+    }catch(e){ /* user cancelled */ }
+  };
+
+  document.getElementById("newProblemBtn").onclick=async()=>{
+    const raw=prompt("Name for the new question:");
+    if(!raw) return;
+    const safe=raw.trim().replace(/\.json$/,"");
+    const name=safe.replace(/[^a-z0-9\-_ ]/gi,"_")+".json";
+    const blank={ id:safe, title:raw.trim(), text:"", marks:{goal:[],variables:[],equations:[]}, solution:[] };
+    await store.save(name,blank);
+    await refreshPicker();
+    await loadFromStore(name);
+    setView("author");
+  };
+
+  document.getElementById("saveFileBtn").onclick=async()=>{
+    if(!currentFile){ alert("No file selected."); return; }
+    await store.save(currentFile,problems[current]);
+    await refreshPicker();
+    document.getElementById("examplePicker").value=currentFile;
+    const btn=document.getElementById("saveFileBtn"); const orig=btn.textContent;
+    btn.textContent="Saved ✓"; setTimeout(()=>btn.textContent=orig,1500);
+  };
+
+  document.getElementById("deleteProblemBtn").onclick=async()=>{
+    if(!currentFile) return;
+    if(!confirm("Delete '"+escapeHtml(problems[current].title||currentFile)+"'? This cannot be undone.")) return;
+    await store.remove(currentFile);
+    currentFile=null;
+    await refreshPicker();
+    const items=await store.list();
+    if(items.length>0) await loadFromStore(items[0].name);
+    else{ problems=[{id:"blank",title:"",text:"",marks:{goal:[],variables:[],equations:[]},solution:[]}]; current=0; loadCurrent(true); }
+    setView("present");
+  };
+
+  document.getElementById("titleInput").oninput=async e=>{ problems[current].title=e.target.value; await refreshPicker(); document.getElementById("examplePicker").value=currentFile; };
+  document.getElementById("ptext").oninput=e=>{
+    const p=problems[current]; const oldText=p.text||""; const newText=e.target.value;
+    shiftMarksOnEdit(p, oldText, newText, e.target.selectionEnd);
+    p.text=newText;
+    renderMarkGroups(); renderAuthorPreview();
+  };
+  document.getElementById("addGoal").onclick=()=>addMark("goal");
+  document.getElementById("addVar").onclick=()=>addMark("variables");
+  document.getElementById("addEq").onclick=()=>addMark("equations");
+  document.getElementById("addSolBtn").onclick=()=>{ const p=problems[current]; p.solution=p.solution||[]; p.solution.push(""); renderSolEditor(); };
+
+  // menu opens on CLICK only (no hover)
+  document.getElementById("handle").addEventListener("click",()=>{
+    const open = document.getElementById("toolbar").classList.toggle("show");
+    document.getElementById("handle").textContent = open ? "menu ▾" : "menu ▴";
+  });
+
+  await initStore();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+{
+  "id": "andre-bob",
+  "title": "Andre and Bob's money",
+  "text": "Andre has more money than Bob. If Andre gave Bob $20, they would have the same amount. While if Bob gave Andre $22, Andre would then have twice as much as Bob.\n\nHow much does each one actually have?",
+  "marks": {
+    "goal": [
+      {
+        "phrase": "How much does each one actually have",
+        "findWorded": "how much each of them has",
+        "findSym": "$a$ and $b$",
+        "whenWorded": "",
+        "whenSym": "",
+        "start": 161,
+        "end": 197
+      }
+    ],
+    "variables": [
+      {
+        "phrase": "Andre",
+        "content": "Let $a$ = amount Andre has (dollars).",
+        "start": 0,
+        "end": 5
+      },
+      {
+        "phrase": "Bob",
+        "content": "Let $b$ = amount Bob has (dollars).",
+        "start": 26,
+        "end": 29
+      }
+    ],
+    "equations": [
+      {
+        "phrase": "Andre gave Bob $20, they would have the same amount",
+        "content": "$a - 20 = b + 20$",
+        "start": 34,
+        "end": 85
+      },
+      {
+        "phrase": "Bob gave Andre $22, Andre would then have twice as much as Bob",
+        "content": "$a + 22 = 2(b - 22)$",
+        "start": 96,
+        "end": 158
+      }
+    ]
+  },
+  "solution": [
+    "First condition: $a - 20 = b + 20 \\Rightarrow a = b + 40$",
+    "Substitute into the second: $(b+40) + 22 = 2(b-22)$",
+    "$b + 62 = 2b - 44$",
+    "$b = 106,\\quad a = b + 40 = 146$",
+    "Andre has 146 dollars and Bob has 106 dollars."
+  ]
+}

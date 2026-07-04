@@ -1,0 +1,59 @@
+{
+  "id": "rancher-pen",
+  "title": "Rancher's pen (optimisation)",
+  "text": "A rancher wants to build a rectangular pen, using one side of her barn for one side of the pen, and using 100m of fencing for the other three sides.\n\nWhat are the dimensions of the pen built this way that has the largest area?",
+  "marks": {
+    "goal": [
+      {
+        "phrase": "the dimensions of the pen built this way that has the largest area",
+        "findWorded": "the dimensions of the pen",
+        "findSym": "$x$ and $y$",
+        "whenWorded": "the area is as large as possible",
+        "whenSym": "$\\dfrac{dA}{dy} = 0$",
+        "start": 159,
+        "end": 225
+      }
+    ],
+    "variables": [
+      {
+        "phrase": "one side of the pen",
+        "content": "Let $x$ = length of the side parallel to the barn (m).",
+        "start": 75,
+        "end": 94
+      },
+      {
+        "phrase": "the other three sides",
+        "content": "Let $y$ = length of each of the two sides perpendicular to the barn (m).",
+        "start": 126,
+        "end": 147
+      },
+      {
+        "phrase": "largest area",
+        "content": "Let $A$ = area of the pen (m²).",
+        "start": 213,
+        "end": 225
+      }
+    ],
+    "equations": [
+      {
+        "phrase": "100m of fencing for the other three sides",
+        "content": "$x + 2y = 100$",
+        "start": 106,
+        "end": 147
+      },
+      {
+        "phrase": "largest area",
+        "content": "$A = xy$",
+        "start": 213,
+        "end": 225
+      }
+    ]
+  },
+  "solution": [
+    "Fencing constraint: $x + 2y = 100 \\Rightarrow x = 100 - 2y$",
+    "Area: $A = xy = (100-2y)y = 100y - 2y^2$",
+    "$\\dfrac{dA}{dy} = 100 - 4y = 0 \\Rightarrow y = 25$",
+    "$x = 100 - 2(25) = 50$",
+    "Maximum area $A = 50 \\times 25 = 1250\\text{ m}^2$, when the pen is $50$m by $25$m."
+  ]
+}
